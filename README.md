@@ -6,11 +6,13 @@ data set name - junction_analysis1.csv
 
 dataset trained code - train_model_LSTM.py
 
-medel name - lstm_traffic_model.h5
+model name - lstm_traffic_model.h5
 
 used datasets for testing - junction_analysistest1.csv and junction_analysis_test2.csv
 
 model tested code - test_model.py
+
+arduino code used to adjust traffic lights - arduino_code_adjust_trlights
 
 predict and develop database code - predict.py
 
