@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Analysis Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body { background-color: #1e1e1e; color: #ffffff; font-family: Arial, sans-serif; }
+        .container { padding: 20px; }
+        h1, h2 { color: #ffffff; }
+        .plot-container { margin-bottom: 30px; }
+        .table { background-color: #2c2c2c; color: #ffffff; }
+        .table th, .table td { border-color: #444444; }
+        .error { color: #ff4d4d; }
+        #frame-player { border: 2px solid #444444; max-width: 640px; }
+        .controls { margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚦 Traffic Analysis Dashboard</h1>
+        <p>Visualizing traffic data from junction_analysis.db.</p>
+
+        {% if error %}
+            <div class="alert alert-danger error">
+                <strong>Error:</strong> {{ error }}
+                <p><strong>Instructions:</strong></p>
+                <ul>
+                    <li>Rerun the video processing script to populate junction_analysis.db.</li>
+                    <li>Ensure video: C:\Users\Isuru\Downloads\finalone\Input Video\20250509_095655.mp4.</li>
+                    <li>Verify models: yolov8n.pt, lstm_traffic_model.h5.</li>
+                    <li>Check terminal for errors.</li>
+                </ul>
+            </div>
+        {% endif %}
+
+        {% if errors %}
+            {% for error in errors %}
+                <div class="alert alert-danger error">{{ error }}</div>
+            {% endfor %}
+        {% endif %}
+
+        {% if overview %}
+            <h2>📊 Overview</h2>
+            <div class="row">
+                <div class="col-md-4">
+                    <p><strong>Total Frames:</strong> {{ overview.total_frames }}</p>
+                    <p><strong>Total Detections:</strong> {{ overview.total_detections|default(0) }}</p>
+                </div>
+                <div class="col-md-4">
+                    <p><strong>Green Signals:</strong> {{ overview.green_signals }}</p>
+                    <p><strong>Speed Annotations:</strong> {{ overview.speed_annotations|default(0) }}</p>
+                </div>
+                <div class="col-md-4">
+                    <p><strong>Red Signals:</strong> {{ overview.red_signals }}</p>
+                </div>
+            </div>
+        {% endif %}
+
+        <h2>📈 Time-Series Analysis</h2>
+        {% if counts_plot %}
+            <div class="plot-container">{{ counts_plot | safe }}</div>
+        {% endif %}
+        {% if speeds_plot %}
+            <div class="plot-container">{{ speeds_plot | safe }}</div>
+        {% endif %}
+
+        <h2>🚥 Signal Distribution</h2>
+        <div class="row">
+            <div class="col-md-6">
+                {% if vehicle_signal_plot %}
+                    <div class="plot-container">{{ vehicle_signal_plot | safe }}</div>
+                {% endif %}
+            </div>
+            <div class="col-md-6">
+                {% if pedestrian_signal_plot %}
+                    <div class="plot-container">{{ pedestrian_signal_plot | safe }}</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <h2>🔍 Detection Analysis</h2>
+        <div class="row">
+            <div class="col-md-6">
+                {% if class_plot %}
+                    <div class="plot-container">{{ class_plot | safe }}</div>
+                {% endif %}
+            </div>
+            <div class="col-md-6">
+                {% if region_plot %}
+                    <div class="plot-container">{{ region_plot | safe }}</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <h2>🏃‍♂️ Speed Annotations</h2>
+        {% if speed_plot %}
+            <div class="plot-container">{{ speed_plot | safe }}</div>
+        {% endif %}
+
+        <h2>🎥 Annotated Frame Playback</h2>
+        {% if frame_ids %}
+            <img id="frame-player" src="" alt="Annotated Frame" class="img-fluid">
+            <div class="controls">
+                <button id="play-pause" class="btn btn-primary">Play</button>
+                <label for="fps">FPS:</label>
+                <input type="number" id="fps" value="5" min="1" max="30" style="width: 60px;">
+                <p>Frame ID: <span id="current-frame-id">N/A</span></p>
+                <p id="playback-error" class="error"></p>
+            </div>
+            <script>
+                const frameIds = {{ frame_ids | tojson }};
+                let currentIndex = 0;
+                let isPlaying = false;
+                let fps = 5;
+
+                const framePlayer = document.getElementById('frame-player');
+                const playPauseButton = document.getElementById('play-pause');
+                const fpsInput = document.getElementById('fps');
+                const currentFrameId = document.getElementById('current-frame-id');
+                const errorDiv = document.getElementById('playback-error');
+
+                async function loadFrame(index) {
+                    if (index < 0 || index >= frameIds.length) {
+                        currentIndex = 0;
+                        return;
+                    }
+                    try {
+                        const response = await fetch(`/get_frame/${frameIds[index]}`);
+                        const data = await response.json();
+                        if (data.image) {
+                            framePlayer.src = `data:image/png;base64,${data.image}`;
+                            currentFrameId.textContent = frameIds[index];
+                            errorDiv.textContent = '';
+                        } else {
+                            errorDiv.textContent = `No frame for ID ${frameIds[index]}`;
+                            currentIndex++;
+                        }
+                    } catch (error) {
+                        errorDiv.textContent = `Error loading frame ${frameIds[index]}`;
+                        console.error('Fetch error:', error);
+                        currentIndex++;
+                    }
+                }
+
+                function playFrames() {
+                    if (!isPlaying) return;
+                    loadFrame(currentIndex).then(() => {
+                        currentIndex++;
+                        if (currentIndex >= frameIds.length) currentIndex = 0;
+                        setTimeout(playFrames, 1000 / fps);
+                    });
+                }
+
+                playPauseButton.addEventListener('click', () => {
+                    isPlaying = !isPlaying;
+                    playPauseButton.textContent = isPlaying ? 'Pause' : 'Play';
+                    if (isPlaying) {
+                        fps = parseInt(fpsInput.value) || 5;
+                        playFrames();
+                    }
+                });
+
+                fpsInput.addEventListener('input', () => {
+                    fps = parseInt(fpsInput.value) || 5;
+                });
+
+                if (frameIds.length > 0) {
+                    loadFrame(0);
+                } else {
+                    errorDiv.textContent = 'No annotated frames available.';
+                }
+            </script>
+        {% else %}
+            <p>No annotated frames available for playback.</p>
+        {% endif %}
+
+        <h2>📋 Raw Data Tables</h2>
+        {% if frame_data_html %}
+            <h3>FrameData Table</h3>
+            {{ frame_data_html | safe }}
+        {% endif %}
+        {% if detections_html %}
+            <h3>Detections Table</h3>
+            {{ detections_html | safe }}
+        {% endif %}
+        {% if annotations_html %}
+            <h3>Annotations Table</h3>
+            {{ annotations_html | safe }}
+        {% endif %}
+
+        <p><em>Visualizations saved in: C:\Users\Isuru\Downloads\finalone\dashboard_visualizations</em></p>
+    </div>
+</body>
+</html>
